@@ -1,0 +1,67 @@
+# PiSender.py
+import asyncio
+import cv2
+from aiortc import RTCPeerConnection, VideoStreamTrack, RTCSessionDescription
+from av import VideoFrame
+import numpy as np
+import time
+
+# ---------- Video Track ----------
+class PiCameraTrack(VideoStreamTrack):
+    """
+    A VideoStreamTrack that returns frames from the Pi camera
+    """
+    def __init__(self, width=640, height=480, fps=15):
+        super().__init__()
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.cap = cv2.VideoCapture(0)  # 0 = default camera
+
+    async def recv(self):
+        pts, time_base = await self.next_timestamp()
+
+        ret, frame = self.cap.read()
+        if not ret:
+            # If camera fails, generate black frame
+            frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        else:
+            # resize if needed
+            frame = cv2.resize(frame, (self.width, self.height))
+
+        # Convert to VideoFrame
+        video_frame = VideoFrame.from_ndarray(frame, format="bgr24")
+        video_frame.pts = pts
+        video_frame.time_base = time_base
+        return video_frame
+
+# ---------- Main ----------
+async def main():
+    pc = RTCPeerConnection()
+    video_track = PiCameraTrack()
+    pc.addTrack(video_track)
+
+    # For testing, we print the offer SDP so laptop can copy it
+    offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+
+    print("Paste this SDP into your laptop Receiver.py:")
+    print(pc.localDescription.sdp)
+    print("\n--- End of SDP ---\n")
+
+    # Wait for laptop to provide the answer SDP
+    answer_sdp = input("Paste the SDP answer from laptop:\n")
+    answer = RTCSessionDescription(sdp=answer_sdp, type="answer")
+    await pc.setRemoteDescription(answer)
+
+    print("Connection established. Streaming video...")
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down...")
+        await pc.close()
+        video_track.cap.release()
+
+if __name__ == "__main__":
+    asyncio.run(main())
