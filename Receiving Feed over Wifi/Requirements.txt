@@ -1,0 +1,2 @@
+sudo apt install libcamera-apps
+pip install aiortc

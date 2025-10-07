@@ -1,0 +1,31 @@
+# pi_sender.py
+import asyncio
+from aiortc import RTCPeerConnection, VideoStreamTrack
+from aiortc.contrib.signaling import TcpSocketSignaling
+from av import VideoFrame
+import cv2
+class Camera(VideoStreamTrack):
+    def __init__(self):
+        super().__init__()
+        self.cap = cv2.VideoCapture(0)
+
+    async def recv(self):
+        pts, time_base = await self.next_timestamp()
+        ret, frame = self.cap.read()
+        if not ret:
+            return None
+        video_frame = VideoFrame.from_ndarray(frame, format="bgr24")
+        video_frame.pts = pts
+        video_frame.time_base = time_base
+        return video_frame
+
+async def main():
+    pc = RTCPeerConnection()
+    signaling = TcpSocketSignaling("0.0.0.0", 9000)
+    pc.addTrack(Camera())
+    await signaling.connect()
+    await pc.setLocalDescription(await pc.createOffer())
+    await signaling.send(pc.localDescription)
+    await pc.setRemoteDescription(await signaling.receive())
+
+asyncio.run(main())
